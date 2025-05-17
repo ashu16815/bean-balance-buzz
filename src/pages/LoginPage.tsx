@@ -42,9 +42,9 @@ const LoginPage = () => {
     
     try {
       let credentials = {
-        customer: { email: 'customer@example.com', password: 'password123' },
-        barista: { email: 'barista@example.com', password: 'password123' },
-        admin: { email: 'admin@example.com', password: 'password123' }
+        customer: { email: 'demo.customer@example.com', password: 'demo123' },
+        barista: { email: 'demo.barista@example.com', password: 'demo123' },
+        admin: { email: 'demo.admin@example.com', password: 'demo123' }
       };
       
       const { email, password } = credentials[role];
