@@ -95,7 +95,7 @@ const OrderItem = ({ order, showActions = false }: OrderItemProps) => {
               Mark Ready
             </Button>
           )}
-          {(order.status !== 'cancelled') && (
+          {order.status !== 'completed' && order.status !== 'cancelled' && (
             <Button 
               variant="outline" 
               size="sm"
