@@ -2,7 +2,7 @@
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Order } from "@/types/models";
+import { Order, OrderStatus } from "@/types/models";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrders } from "@/contexts/OrderContext";
 import { formatDistanceToNow } from "date-fns";
@@ -32,7 +32,7 @@ const OrderItem = ({ order, showActions = false }: OrderItemProps) => {
   };
   
   // Handle updating order status (for barista/admin)
-  const handleUpdateStatus = (status: 'preparing' | 'ready' | 'cancelled') => {
+  const handleUpdateStatus = (status: OrderStatus) => {
     updateOrderStatus(order.id, status);
   };
   
@@ -95,7 +95,7 @@ const OrderItem = ({ order, showActions = false }: OrderItemProps) => {
               Mark Ready
             </Button>
           )}
-          {order.status !== 'cancelled' && (
+          {(order.status !== 'cancelled') && (
             <Button 
               variant="outline" 
               size="sm"
