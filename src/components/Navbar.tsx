@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const Navbar = () => {
-  const { currentUser, logout } = useAuth();
+  const { currentUser, user, logout } = useAuth();
 
   const navLinkClasses = ({ isActive }: { isActive: boolean }) => cn(
     "px-4 py-2 rounded-md transition-colors", 
@@ -61,7 +61,7 @@ const Navbar = () => {
                   <DropdownMenuLabel>
                     <div className="flex flex-col">
                       <span>{currentUser.name}</span>
-                      <span className="text-xs text-muted-foreground">{currentUser.email}</span>
+                      <span className="text-xs text-muted-foreground">{user?.email}</span>
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />

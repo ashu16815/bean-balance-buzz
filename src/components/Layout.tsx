@@ -30,7 +30,7 @@ const Layout = ({ children, requiresAuth = false, allowedRoles }: LayoutProps) =
   }
   
   // If specific roles are required but user doesn't have permission
-  if (currentUser && allowedRoles && !allowedRoles.includes(currentUser.role)) {
+  if (currentUser && allowedRoles && !allowedRoles.includes(currentUser.role as 'customer' | 'barista' | 'admin')) {
     return <Navigate to="/unauthorized" replace />;
   }
   
