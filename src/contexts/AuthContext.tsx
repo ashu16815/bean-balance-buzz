@@ -93,18 +93,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
+      console.log(`Attempting to log in with email: ${email}`);
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       });
       
       if (error) {
+        console.error('Login error:', error);
         throw error;
+      }
+
+      if (!data.user) {
+        throw new Error('User not found');
       }
 
       // Profile will be fetched by the auth state listener
       toast.success(`Welcome back!`);
+      return data;
     } catch (error: any) {
+      console.error('Login failed:', error);
       toast.error(error.message || 'Login failed');
       throw error;
     } finally {

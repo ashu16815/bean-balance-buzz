@@ -9,24 +9,28 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Loader2 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { toast } from "sonner";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
 
 const LoginPage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(null);
     
     try {
       await login(email, password);
       navigate("/order");
-    } catch (error) {
-      // Error is handled in auth context
-      console.log("Login failed");
+    } catch (error: any) {
+      console.error("Login error:", error);
+      setError(error.message || "Failed to log in. Please check your credentials and try again.");
     } finally {
       setIsLoading(false);
     }
@@ -34,16 +38,23 @@ const LoginPage = () => {
 
   const handleDemoLogin = async (role: 'customer' | 'barista' | 'admin') => {
     setIsLoading(true);
+    setError(null);
+    
     try {
-      let demoEmail = 'customer@example.com';
-      if (role === 'barista') demoEmail = 'barista@example.com';
-      if (role === 'admin') demoEmail = 'admin@example.com';
+      let credentials = {
+        customer: { email: 'customer@example.com', password: 'password123' },
+        barista: { email: 'barista@example.com', password: 'password123' },
+        admin: { email: 'admin@example.com', password: 'password123' }
+      };
       
-      await login(demoEmail, 'password');
+      const { email, password } = credentials[role];
+      
+      await login(email, password);
       navigate("/order");
       toast.success(`Logged in as ${role}`);
-    } catch (error) {
-      // Error is handled in auth context
+    } catch (error: any) {
+      console.error(`Demo login error (${role}):`, error);
+      setError(`Demo ${role} login failed: ${error.message || "Invalid credentials"}. The demo accounts may need to be created first.`);
     } finally {
       setIsLoading(false);
     }
@@ -60,6 +71,13 @@ const LoginPage = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {error && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+          
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -139,6 +157,19 @@ const LoginPage = () => {
                 >
                   Admin
                 </Button>
+              </div>
+            </div>
+            
+            <div className="mt-6">
+              <div className="p-4 bg-muted/50 rounded-md">
+                <h3 className="font-medium mb-1">Demo Account Information</h3>
+                <p className="text-sm text-muted-foreground">
+                  Demo accounts use the following credentials:
+                </p>
+                <ul className="text-sm mt-2 space-y-1 text-muted-foreground">
+                  <li>Email: customer/barista/admin@example.com</li>
+                  <li>Password: password123</li>
+                </ul>
               </div>
             </div>
           </CardContent>
