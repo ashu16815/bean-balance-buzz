@@ -73,7 +73,7 @@ const OrderItem = ({ order, showActions = false }: OrderItemProps) => {
         </div>
       </CardContent>
       
-      {showActions && currentUser?.role !== 'customer' && order.status !== 'completed' && order.status !== 'cancelled' && (
+      {showActions && currentUser?.role !== 'customer' && (
         <CardFooter className="flex gap-2 flex-wrap">
           {order.status === 'pending' && (
             <Button 
@@ -95,7 +95,7 @@ const OrderItem = ({ order, showActions = false }: OrderItemProps) => {
               Mark Ready
             </Button>
           )}
-          {order.status !== 'completed' && order.status !== 'cancelled' && (
+          {!['completed', 'cancelled'].includes(order.status) && (
             <Button 
               variant="outline" 
               size="sm"
