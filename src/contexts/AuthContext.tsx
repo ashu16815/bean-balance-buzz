@@ -1,93 +1,111 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { Session, User } from '@supabase/supabase-js';
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { Tables } from '@/integrations/supabase/types';
 
 // Types
-type User = {
-  id: string;
-  name: string;
-  email: string;
-  credits: number;
-  role: 'customer' | 'barista' | 'admin';
-};
+type UserProfile = Tables<'profiles'> | null;
 
 type AuthContextType = {
-  currentUser: User | null;
+  currentUser: UserProfile;
+  user: User | null;
+  session: Session | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => void;
-  updateUserCredits: (newCredits: number) => void;
+  updateUserCredits: (newCredits: number) => Promise<void>;
 };
-
-// Sample users for demo
-const SAMPLE_USERS = [
-  {
-    id: '1',
-    name: 'Customer User',
-    email: 'customer@example.com',
-    password: 'password',
-    credits: 10,
-    role: 'customer' as const
-  },
-  {
-    id: '2',
-    name: 'Barista User',
-    email: 'barista@example.com',
-    password: 'password',
-    credits: 20,
-    role: 'barista' as const
-  },
-  {
-    id: '3',
-    name: 'Admin User',
-    email: 'admin@example.com',
-    password: 'password',
-    credits: 100,
-    role: 'admin' as const
-  }
-];
 
 // Create the context
 const AuthContext = createContext<AuthContextType | null>(null);
 
 // Provider component
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserProfile>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Check local storage for logged-in user on mount
-    const savedUser = localStorage.getItem('cafeUser');
-    if (savedUser) {
-      setCurrentUser(JSON.parse(savedUser));
+  // Fetch user profile data
+  const fetchProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching profile:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      return null;
     }
-    setLoading(false);
+  };
+
+  // Initialize auth state
+  useEffect(() => {
+    // Set up auth state listener
+    const { data: { subscription }} = supabase.auth.onAuthStateChange(
+      async (event, currentSession) => {
+        setSession(currentSession);
+        setUser(currentSession?.user || null);
+        
+        // Defer profile fetch to avoid Supabase deadlock
+        if (currentSession?.user) {
+          setTimeout(async () => {
+            const profile = await fetchProfile(currentSession.user.id);
+            setCurrentUser(profile);
+            setLoading(false);
+          }, 0);
+        } else {
+          setCurrentUser(null);
+          setLoading(false);
+        }
+      }
+    );
+
+    // Check for existing session
+    supabase.auth.getSession().then(async ({ data: { session: currentSession } }) => {
+      setSession(currentSession);
+      setUser(currentSession?.user || null);
+      
+      if (currentSession?.user) {
+        const profile = await fetchProfile(currentSession.user.id);
+        setCurrentUser(profile);
+      }
+      
+      setLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 800));
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
       
-      // Find user by email and verify password
-      const user = SAMPLE_USERS.find(
-        u => u.email === email && u.password === password
-      );
-      
-      if (!user) {
-        throw new Error('Invalid email or password');
+      if (error) {
+        throw error;
       }
-      
-      const { password: _, ...userWithoutPassword } = user;
-      setCurrentUser(userWithoutPassword);
-      
-      // Save to local storage
-      localStorage.setItem('cafeUser', JSON.stringify(userWithoutPassword));
-      toast.success(`Welcome back, ${userWithoutPassword.name}!`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Login failed');
+
+      // Profile will be fetched by the auth state listener
+      toast.success(`Welcome back!`);
+    } catch (error: any) {
+      toast.error(error.message || 'Login failed');
       throw error;
     } finally {
       setLoading(false);
@@ -97,59 +115,61 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const register = async (name: string, email: string, password: string) => {
     setLoading(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 800));
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name
+          }
+        }
+      });
       
-      // Check if user already exists
-      if (SAMPLE_USERS.some(u => u.email === email)) {
-        throw new Error('Email already in use');
+      if (error) {
+        throw error;
       }
       
-      // Create new user (in a real app, this would be a database call)
-      const newUser = {
-        id: `user-${Date.now()}`,
-        name,
-        email,
-        credits: 5, // Starting credits
-        role: 'customer' as const
-      };
-      
-      // Add to "database" (would be persisted in a real app)
-      SAMPLE_USERS.push({ ...newUser, password });
-      
-      setCurrentUser(newUser);
-      localStorage.setItem('cafeUser', JSON.stringify(newUser));
+      // Profile will be created by database trigger and fetched by the auth state listener
       toast.success('Account created successfully! 5 credits added to your account.');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Registration failed');
+    } catch (error: any) {
+      toast.error(error.message || 'Registration failed');
       throw error;
     } finally {
       setLoading(false);
     }
   };
 
-  const logout = () => {
-    setCurrentUser(null);
-    localStorage.removeItem('cafeUser');
+  const logout = async () => {
+    await supabase.auth.signOut();
     toast.info('You have been logged out');
   };
 
-  const updateUserCredits = (newCredits: number) => {
-    if (currentUser) {
-      const updatedUser = { ...currentUser, credits: newCredits };
-      setCurrentUser(updatedUser);
-      localStorage.setItem('cafeUser', JSON.stringify(updatedUser));
-      
-      // Also update in our "database"
-      const userIndex = SAMPLE_USERS.findIndex(u => u.id === currentUser.id);
-      if (userIndex >= 0) {
-        SAMPLE_USERS[userIndex] = { ...SAMPLE_USERS[userIndex], credits: newCredits };
+  const updateUserCredits = async (newCredits: number) => {
+    if (!currentUser || !user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({ credits: newCredits })
+        .eq('id', user.id)
+        .select()
+        .single();
+        
+      if (error) {
+        toast.error('Failed to update credits');
+        throw error;
       }
+      
+      setCurrentUser(data);
+    } catch (error) {
+      console.error('Error updating credits:', error);
     }
   };
 
   const value = {
     currentUser,
+    user,
+    session,
     loading,
     login,
     register,

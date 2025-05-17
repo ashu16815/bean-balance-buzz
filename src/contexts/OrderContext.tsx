@@ -3,24 +3,25 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { toast } from "sonner";
 import { Order, OrderStatus, CoffeeType, MilkOption } from '../types/models';
 import { useAuth } from './AuthContext';
+import { supabase } from "@/integrations/supabase/client";
 
 type OrderContextType = {
   orders: Order[];
   userOrders: Order[];
   pendingOrders: Order[];
   placeOrder: (coffeeType: CoffeeType, milkOption: MilkOption) => Promise<void>;
-  updateOrderStatus: (orderId: string, newStatus: OrderStatus) => void;
+  updateOrderStatus: (orderId: string, newStatus: OrderStatus) => Promise<void>;
 };
 
 const OrderContext = createContext<OrderContextType | null>(null);
 
 export const OrderProvider = ({ children }: { children: ReactNode }) => {
   const [orders, setOrders] = useState<Order[]>([]);
-  const { currentUser, updateUserCredits } = useAuth();
+  const { currentUser, user } = useAuth();
 
   // Filter orders for the current user
   const userOrders = orders.filter(order => 
-    currentUser && order.userId === currentUser.id
+    user && order.userId === user.id
   );
 
   // Filter pending orders (for barista view)
@@ -28,29 +29,89 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
     ['pending', 'preparing'].includes(order.status)
   );
   
-  // Load orders from localStorage on mount
+  // Load orders from Supabase
   useEffect(() => {
-    const savedOrders = localStorage.getItem('cafeOrders');
-    if (savedOrders) {
-      const parsedOrders = JSON.parse(savedOrders).map((order: any) => ({
-        ...order,
-        createdAt: new Date(order.createdAt),
-        updatedAt: new Date(order.updatedAt)
-      }));
-      setOrders(parsedOrders);
-    }
-  }, []);
+    const fetchOrders = async () => {
+      if (!user) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('*')
+          .order('created_at', { ascending: false });
+          
+        if (error) {
+          console.error('Error fetching orders:', error);
+          return;
+        }
+        
+        // Transform Supabase data to match our Order type
+        const transformedOrders = data.map(order => ({
+          id: order.id,
+          userId: order.user_id,
+          userName: order.user_id, // We'll update this below
+          coffeeType: order.coffee_type as CoffeeType,
+          milkOption: order.milk_option as MilkOption,
+          status: order.status as OrderStatus,
+          totalPrice: order.total_price,
+          createdAt: new Date(order.created_at),
+          updatedAt: new Date(order.updated_at)
+        }));
+        
+        // Fetch user names for all orders
+        if (transformedOrders.length > 0) {
+          // Get unique user IDs
+          const userIds = [...new Set(transformedOrders.map(order => order.userId))];
+          
+          // Fetch profiles for these users
+          const { data: profiles, error: profilesError } = await supabase
+            .from('profiles')
+            .select('id, name')
+            .in('id', userIds);
+            
+          if (!profilesError && profiles) {
+            // Create a mapping of user ID to name
+            const userNameMap = profiles.reduce((map, profile) => {
+              map[profile.id] = profile.name;
+              return map;
+            }, {} as Record<string, string>);
+            
+            // Update order userName
+            transformedOrders.forEach(order => {
+              order.userName = userNameMap[order.userId] || 'Unknown User';
+            });
+          }
+        }
+        
+        setOrders(transformedOrders);
+      } catch (error) {
+        console.error('Error fetching orders:', error);
+      }
+    };
+    
+    fetchOrders();
+    
+    // Subscribe to changes on the orders table
+    const ordersSubscription = supabase
+      .channel('public:orders')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'orders' }, 
+        () => {
+          fetchOrders();
+        }
+      )
+      .subscribe();
+      
+    return () => {
+      ordersSubscription.unsubscribe();
+    };
+  }, [user]);
 
-  // Save orders to localStorage when they change
+  // Poll for updates every 15 seconds (as a fallback)
   useEffect(() => {
-    if (orders.length > 0) {
-      localStorage.setItem('cafeOrders', JSON.stringify(orders));
-    }
-  }, [orders]);
-
-  // Poll for updates every 15 seconds
-  useEffect(() => {
-    // In a real app, this would be a WebSocket or other real-time connection
+    if (!user) return;
+    
+    // In a real app, this would be replaced by the real-time subscription above
     const interval = setInterval(() => {
       // Check if any user orders have been updated to "ready"
       const readyOrders = userOrders.filter(
@@ -59,22 +120,19 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
       
       if (readyOrders.length > 0) {
         readyOrders.forEach(order => {
-          // Only notify once by changing it to 'completed'
-          if (order.status === 'ready') {
-            toast.success(`Your ${order.coffeeType.name} is ready!`, {
-              duration: 5000,
-            });
-            updateOrderStatus(order.id, 'completed');
-          }
+          // Only notify once
+          toast.success(`Your ${order.coffeeType.name} is ready!`, {
+            duration: 5000,
+          });
         });
       }
     }, 15000);
     
     return () => clearInterval(interval);
-  }, [userOrders]);
+  }, [userOrders, user]);
 
   const placeOrder = async (coffeeType: CoffeeType, milkOption: MilkOption) => {
-    if (!currentUser) throw new Error('You must be logged in to place an order');
+    if (!currentUser || !user) throw new Error('You must be logged in to place an order');
     
     // Calculate total price (coffee price + any milk extra cost)
     let totalPrice = coffeeType.price;
@@ -88,46 +146,87 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
       throw new Error('Insufficient credits');
     }
     
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 800));
-    
-    // Create new order
-    const newOrder: Order = {
-      id: `order-${Date.now()}`,
-      userId: currentUser.id,
-      userName: currentUser.name,
-      coffeeType,
-      milkOption,
-      status: 'pending',
-      totalPrice,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-    
-    // Add order
-    setOrders(prevOrders => [...prevOrders, newOrder]);
-    
-    // Deduct credits
-    updateUserCredits(currentUser.credits - totalPrice);
-    
-    toast.success('Order placed successfully!');
-    return;
+    try {
+      // Insert order into Supabase
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .insert({
+          user_id: user.id,
+          coffee_type: coffeeType,
+          milk_option: milkOption,
+          status: 'pending',
+          total_price: totalPrice
+        })
+        .select()
+        .single();
+        
+      if (orderError) {
+        toast.error('Failed to place order');
+        throw orderError;
+      }
+      
+      // Update user credits
+      const newCredits = currentUser.credits - totalPrice;
+      await supabase
+        .from('profiles')
+        .update({ credits: newCredits })
+        .eq('id', user.id);
+      
+      // Use the updateUserCredits function from AuthContext
+      await updateUserCredits(newCredits);
+      
+      toast.success('Order placed successfully!');
+    } catch (error) {
+      console.error('Error placing order:', error);
+      throw error;
+    }
   };
 
-  const updateOrderStatus = (orderId: string, newStatus: OrderStatus) => {
-    setOrders(prevOrders => 
-      prevOrders.map(order => 
-        order.id === orderId 
-          ? { ...order, status: newStatus, updatedAt: new Date() } 
-          : order
-      )
-    );
-    
-    if (newStatus === 'ready') {
-      const order = orders.find(o => o.id === orderId);
-      if (order) {
-        toast.success(`Order for ${order.userName} is ready!`);
+  const updateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: newStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', orderId);
+        
+      if (error) {
+        toast.error('Failed to update order status');
+        throw error;
       }
+      
+      // Update local state
+      setOrders(prevOrders => 
+        prevOrders.map(order => 
+          order.id === orderId 
+            ? { ...order, status: newStatus, updatedAt: new Date() } 
+            : order
+        )
+      );
+      
+      if (newStatus === 'ready') {
+        const order = orders.find(o => o.id === orderId);
+        if (order) {
+          toast.success(`Order for ${order.userName} is ready!`);
+        }
+      }
+    } catch (error) {
+      console.error('Error updating order status:', error);
+    }
+  };
+
+  const updateUserCredits = async (newCredits: number) => {
+    if (!currentUser || !user) return;
+    
+    try {
+      await supabase
+        .from('profiles')
+        .update({ credits: newCredits })
+        .eq('id', user.id);
+    } catch (error) {
+      console.error('Error updating user credits:', error);
     }
   };
 
