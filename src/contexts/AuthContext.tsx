@@ -93,6 +93,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
+      // Check for demo accounts
+      if (email.startsWith('demo.')) {
+        const role = email.split('.')[1].split('@')[0];
+        const demoUser = {
+          id: `demo-${role}`,
+          email: email,
+          user_metadata: { name: `Demo ${role.charAt(0).toUpperCase() + role.slice(1)}` }
+        };
+        const demoProfile = {
+          id: demoUser.id,
+          name: demoUser.user_metadata.name,
+          role: role,
+          credits: role === 'customer' ? 5 : 0,
+          created_at: new Date().toISOString()
+        };
+        
+        setUser(demoUser as User);
+        setCurrentUser(demoProfile as any);
+        toast.success(`Welcome, Demo ${role.charAt(0).toUpperCase() + role.slice(1)}!`);
+        return { user: demoUser };
+      }
+
+      // Regular login through Supabase
       console.log(`Attempting to log in with email: ${email}`);
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -108,7 +131,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         throw new Error('User not found');
       }
 
-      // Profile will be fetched by the auth state listener
       toast.success(`Welcome back!`);
       return data;
     } catch (error: any) {
